@@ -114,6 +114,23 @@ namespace GLSLToCSharpApp
             sb.AppendLine();
             sb.AppendLine($"        internal static {className} Instance => _instance.Value;");
 
+            int stride = attributes.Select(a => GetGlslTypeSize(a.Type)).Sum();
+            int offset = 0;
+
+            foreach (var attribute in attributes)
+            {
+                sb.AppendLine();
+
+                int size = GetGlslTypeSize(attribute.Type);
+
+                sb.AppendLine($"        private static void Set{UpperFirstChar(attribute.Name)}() => SetVertexAttributeData({attribute.Location}, {GetGlslTypeNumberOfValues(attribute.Type)}, {GetGlslVertexAttribPointerType(attribute.Type)}, {stride}, {offset});");
+
+                offset += size;
+            }
+
+            sb.AppendLine();
+            sb.AppendLine($"        internal override void SetVertexAttributesData() {{ {string.Join(' ', attributes.Select(a => $"Set{UpperFirstChar(a.Name)}();"))} }}");
+
             foreach (var uniform in uniforms)
             {
                 sb.AppendLine();
@@ -126,20 +143,6 @@ namespace GLSLToCSharpApp
                 {
                     sb.AppendLine($"        internal void Set{UpperFirstChar(uniform.Name)}({GlslToCSharpType(uniform.Type)} {uniform.Name}) => Set{GlslToShaderMethod(uniform.Type)}(\"{uniform.Name}\", {uniform.Name});");
                 }
-            }
-
-            int stride = attributes.Select(a => GetGlslTypeSize(a.Type)).Sum();
-            int offset = 0;
-
-            foreach (var attribute in attributes)
-            {
-                sb.AppendLine();
-
-                int size = GetGlslTypeSize(attribute.Type);
-
-                sb.AppendLine($"        internal void Set{UpperFirstChar(attribute.Name)}() => SetVertexAttributeData({attribute.Location}, {GetGlslTypeNumberOfValues(attribute.Type)}, {GetGlslVertexAttribPointerType(attribute.Type)}, {stride}, {offset});");
-
-                offset += size;
             }
 
             sb.AppendLine("    }");
