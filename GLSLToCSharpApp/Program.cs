@@ -1,5 +1,6 @@
-﻿using System.Text.RegularExpressions;
+﻿using System;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace GLSLToCSharpApp
 {
@@ -11,7 +12,7 @@ namespace GLSLToCSharpApp
             string? documentPath = Console.ReadLine();
 
             if (!string.IsNullOrEmpty(documentPath))
-            { 
+            {
                 Save(documentPath.Replace("\"", ""));
             }
         }
@@ -25,7 +26,7 @@ namespace GLSLToCSharpApp
              || extension.Equals(".frag", StringComparison.OrdinalIgnoreCase))
             {
                 // Capitalize the first letter of the class name
-                string className = char.ToUpper(fileNameWithoutExtension[0]) + fileNameWithoutExtension[1..] + "Shader";
+                string className = UpperFirstChar(fileNameWithoutExtension) + "Shader";
 
                 string newCsFilePath = Path.Combine(Path.GetDirectoryName(documentPath) ?? string.Empty, className + ".cs");
 
@@ -44,8 +45,11 @@ namespace GLSLToCSharpApp
                 // Parse the GLSL file for uniforms
                 var uniforms = ParseUniforms(content);
 
+                // Parse the GLSL file for vertex attributes
+                var vertexAttributes = ParseVertexAttributes(content);
+
                 // Update the C# file with the generated class
-                UpdateCSharpFile(newCsFilePath, uniforms, className, fileNameWithoutExtension);
+                UpdateCSharpFile(newCsFilePath, uniforms, vertexAttributes, className, fileNameWithoutExtension);
             }
         }
 
@@ -61,13 +65,41 @@ namespace GLSLToCSharpApp
                 var name = match.Groups["name"].Value;
                 var size = match.Groups["size"].Value;
 
-                uniforms.Add(new Uniform { Type = type, Name = name, IsArray = !string.IsNullOrEmpty(size) });
+                uniforms.Add(new Uniform
+                {
+                    Type = type,
+                    Name = name,
+                    IsArray = !string.IsNullOrEmpty(size)
+                });
             }
 
             return uniforms;
         }
 
-        private static void UpdateCSharpFile(string filePath, List<Uniform> uniforms, string className, string fileNameWithoutExtension)
+        private static List<VertexAttribute> ParseVertexAttributes(string glslCode)
+        {
+            var attributes = new List<VertexAttribute>();
+            var regex = new Regex(@"layout\(location\s*=\s*(?<location>\d+)\)\s*in\s+(?<type>\w+)\s+(?<name>\w+);", RegexOptions.Compiled);
+            var matches = regex.Matches(glslCode);
+
+            foreach (Match match in matches)
+            {
+                var location = int.Parse(match.Groups["location"].Value);
+                var type = match.Groups["type"].Value;
+                var name = match.Groups["name"].Value;
+
+                attributes.Add(new VertexAttribute
+                {
+                    Location = location,
+                    Type = type,
+                    Name = name
+                });
+            }
+
+            return attributes;
+        }
+
+        private static void UpdateCSharpFile(string filePath, List<Uniform> uniforms, List<VertexAttribute> attributes, string className, string fileNameWithoutExtension)
         {
             var sb = new StringBuilder();
             sb.AppendLine("// This file is auto-generated and any change will be overwritten on the next update.");
@@ -84,18 +116,30 @@ namespace GLSLToCSharpApp
 
             foreach (var uniform in uniforms)
             {
-                string uniformName = char.ToUpper(uniform.Name[0]) + uniform.Name[1..];
-
                 sb.AppendLine();
 
                 if (uniform.IsArray)
                 {
-                    sb.AppendLine($"        internal void Set{uniformName}({GlslToCSharpType(uniform.Type)}[] {uniform.Name}) {{ for (int i = 0; i < {uniform.Name}.Length; i++) Set{GlslToShaderMethod(uniform.Type)}($\"{uniform.Name}[{{i}}]\", {uniform.Name}[i]); }}");
+                    sb.AppendLine($"        internal void Set{UpperFirstChar(uniform.Name)}({GlslToCSharpType(uniform.Type)}[] {uniform.Name}) {{ for (int i = 0; i < {uniform.Name}.Length; i++) Set{GlslToShaderMethod(uniform.Type)}($\"{uniform.Name}[{{i}}]\", {uniform.Name}[i]); }}");
                 }
                 else
                 {
-                    sb.AppendLine($"        internal void Set{uniformName}({GlslToCSharpType(uniform.Type)} {uniform.Name}) => Set{GlslToShaderMethod(uniform.Type)}(\"{uniform.Name}\", {uniform.Name});");
+                    sb.AppendLine($"        internal void Set{UpperFirstChar(uniform.Name)}({GlslToCSharpType(uniform.Type)} {uniform.Name}) => Set{GlslToShaderMethod(uniform.Type)}(\"{uniform.Name}\", {uniform.Name});");
                 }
+            }
+
+            int stride = attributes.Select(a => GetGlslTypeSize(a.Type)).Sum();
+            int offset = 0;
+
+            foreach (var attribute in attributes)
+            {
+                sb.AppendLine();
+
+                int size = GetGlslTypeSize(attribute.Type);
+
+                sb.AppendLine($"        internal void Set{UpperFirstChar(attribute.Name)}() => SetVertexAttributeData({attribute.Location}, {GetGlslTypeNumberOfValues(attribute.Type)}, {GetGlslVertexAttribPointerType(attribute.Type)}, {stride}, {offset});");
+
+                offset += size;
             }
 
             sb.AppendLine("    }");
@@ -132,5 +176,47 @@ namespace GLSLToCSharpApp
                 _ => glslType
             };
         }
+
+        private static int GetGlslTypeSize(string glslType)
+        {
+            return glslType switch
+            {
+                "int" => sizeof(int),
+                "bool" => sizeof(bool),
+                "float" => sizeof(float),
+                "vec2" => sizeof(float) * 2,
+                "vec3" => sizeof(float) * 3,
+                "vec4" => sizeof(float) * 4,
+                _ => 0
+            };
+        }
+
+        private static int GetGlslTypeNumberOfValues(string glslType)
+        {
+            return glslType switch
+            {
+                "int" => 1,
+                "bool" => 1,
+                "float" => 1,
+                "vec2" => 2,
+                "vec3" => 3,
+                "vec4" => 4,
+                _ => 0
+            };
+        }
+
+        private static string GetGlslVertexAttribPointerType(string glslType)
+        {
+            return glslType switch
+            {
+                "float" => "global::OpenTK.Graphics.OpenGL4.VertexAttribPointerType.Float",
+                "vec2" => "global::OpenTK.Graphics.OpenGL4.VertexAttribPointerType.Float",
+                "vec3" => "global::OpenTK.Graphics.OpenGL4.VertexAttribPointerType.Float",
+                "vec4" => "global::OpenTK.Graphics.OpenGL4.VertexAttribPointerType.Float",
+                _ => ""
+            };
+        }
+
+        private static string UpperFirstChar(string value) => char.ToUpper(value[0]) + value[1..];
     }
 }
