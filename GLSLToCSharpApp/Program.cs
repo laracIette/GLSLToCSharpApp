@@ -1,5 +1,4 @@
-﻿using System;
-using System.Text;
+﻿using System.Text;
 using System.Text.RegularExpressions;
 
 namespace GLSLToCSharpApp
@@ -8,49 +7,41 @@ namespace GLSLToCSharpApp
     {
         public static void Main(string[] args)
         {
-            Console.Write("document path : ");
-            string? documentPath = Console.ReadLine();
+            Console.Write("shaders directory : ");
+            string? shadersDirectory = Console.ReadLine();
 
-            if (!string.IsNullOrEmpty(documentPath))
+            if (string.IsNullOrEmpty(shadersDirectory))
             {
-                Save(documentPath.Replace("\"", ""));
+                return;
+            }
+
+            foreach (var directory in Directory.GetDirectories(shadersDirectory.Replace("\"", "")))
+            {
+                Save(directory);
             }
         }
 
-        private static void Save(string documentPath)
+        private static void Save(string directoryPath)
         {
-            string extension = Path.GetExtension(documentPath);
-            string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(documentPath);
+            string shaderName = Path.GetFileName(directoryPath);
+            string documentPath = Path.Combine(directoryPath, shaderName);
 
-            if (extension.Equals(".vert", StringComparison.OrdinalIgnoreCase)
-             || extension.Equals(".frag", StringComparison.OrdinalIgnoreCase))
-            {
-                // Capitalize the first letter of the class name
-                string className = UpperFirstChar(fileNameWithoutExtension) + "Shader";
+            // Capitalize the first letter of the class name
+            string className = UpperFirstChar(shaderName) + "Shader";
 
-                string newCsFilePath = Path.Combine(Path.GetDirectoryName(documentPath) ?? string.Empty, className + ".cs");
+            string newCsFilePath = Path.Combine(directoryPath, className + ".cs");
 
-                // Read file content
-                string content = File.ReadAllText(documentPath);
+            string content = File.ReadAllText(documentPath + ".vert");
+            content += File.ReadAllText(documentPath + ".frag");
 
-                if (extension.Equals(".vert", StringComparison.OrdinalIgnoreCase))
-                {
-                    content += File.ReadAllText(documentPath.Replace(".vert", ".frag"));
-                }
-                else
-                {
-                    content += File.ReadAllText(documentPath.Replace(".frag", ".vert"));
-                }
+            // Parse the GLSL file for uniforms
+            var uniforms = ParseUniforms(content);
 
-                // Parse the GLSL file for uniforms
-                var uniforms = ParseUniforms(content);
+            // Parse the GLSL file for vertex attributes
+            var vertexAttributes = ParseVertexAttributes(content);
 
-                // Parse the GLSL file for vertex attributes
-                var vertexAttributes = ParseVertexAttributes(content);
-
-                // Update the C# file with the generated class
-                UpdateCSharpFile(newCsFilePath, uniforms, vertexAttributes, className, fileNameWithoutExtension);
-            }
+            // Update the C# file with the generated class
+            UpdateCSharpFile(newCsFilePath, uniforms, vertexAttributes, className, shaderName);
         }
 
         private static List<Uniform> ParseUniforms(string glslCode)
@@ -79,7 +70,7 @@ namespace GLSLToCSharpApp
         private static List<VertexAttribute> ParseVertexAttributes(string glslCode)
         {
             var attributes = new List<VertexAttribute>();
-            var regex = new Regex(@"layout\(location\s*=\s*(?<location>\d+)\)\s*in\s+(?<type>\w+)\s+(?<name>\w+);", RegexOptions.Compiled);
+            var regex = new Regex(@"layout\s*\(\s*location\s*=\s*(?<location>\d+)\s*\)\s*in\s+(?<type>\w+)\s+(?<name>\w+);", RegexOptions.Compiled);
             var matches = regex.Matches(glslCode);
 
             foreach (Match match in matches)
@@ -99,7 +90,7 @@ namespace GLSLToCSharpApp
             return attributes;
         }
 
-        private static void UpdateCSharpFile(string filePath, List<Uniform> uniforms, List<VertexAttribute> attributes, string className, string fileNameWithoutExtension)
+        private static void UpdateCSharpFile(string filePath, List<Uniform> uniforms, List<VertexAttribute> attributes, string className, string shaderName)
         {
             var sb = new StringBuilder();
             sb.AppendLine("// This file is auto-generated and any change will be overwritten on the next update.");
@@ -108,7 +99,7 @@ namespace GLSLToCSharpApp
             sb.AppendLine("{");
             sb.AppendLine($"    internal partial class {className} : Shader");
             sb.AppendLine("    {");
-            sb.AppendLine($"        private {className}() : base(\"{fileNameWithoutExtension}\") {{ }}");
+            sb.AppendLine($"        private {className}() : base(\"{shaderName}\") {{ }}");
             sb.AppendLine();
             sb.AppendLine($"        private static readonly global::System.Lazy<{className}> _instance = new(() => new());");
             sb.AppendLine();
@@ -129,7 +120,7 @@ namespace GLSLToCSharpApp
             }
 
             sb.AppendLine();
-            sb.AppendLine($"        internal override void SetVertexAttributesData() {{ {string.Join(' ', attributes.Select(a => $"Set{UpperFirstChar(a.Name)}();"))} }}");
+            sb.AppendLine($"        internal override void SetVertexAttributesData() {{ {string.Concat(attributes.Select(a => $"Set{UpperFirstChar(a.Name)}(); "))}}}");
 
             foreach (var uniform in uniforms)
             {
