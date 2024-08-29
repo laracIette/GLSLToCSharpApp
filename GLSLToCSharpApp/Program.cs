@@ -152,6 +152,8 @@ namespace GLSLToCSharpApp
                 "mat4" => "global::OpenTK.Mathematics.Matrix4",
                 "DirectionalLight" => "global::Kotono.Graphics.Objects.Lights.DirectionalLight",
                 "PointLight" => "global::Kotono.Graphics.Objects.Lights.PointLight",
+                "SpotLight" => "global::Kotono.Graphics.Objects.Lights.SpotLight",
+                "sampler2D" => "int",
                 _ => glslType
             };
         }
@@ -167,6 +169,7 @@ namespace GLSLToCSharpApp
                 "vec3" => "Vector",
                 "vec4" => "Color",
                 "mat4" => "Matrix4",
+                "sampler2D" => "Int",
                 _ => glslType
             };
         }
